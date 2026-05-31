@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Voxel Arena Duel</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <main class="game-wrapper">
+    <header class="game-header">
+      <h1>Voxel Arena Duel</h1>
+      <p>Fight through all bot enemies and survive the arena.</p>
+    </header>
+
+    <section class="hud">
+      <div class="health-box">
+        <div class="label-row">
+          <span>Player</span>
+          <span id="playerHpText">100 / 100</span>
+        </div>
+        <div class="health-bg">
+          <div id="playerHealth" class="health-fill player-fill"></div>
+        </div>
+      </div>
+
+      <div class="round-box">
+        <span id="roundText">Round 1</span>
+        <span id="specialText">Special Ready</span>
+      </div>
+
+      <div class="health-box">
+        <div class="label-row">
+          <span>Bot</span>
+          <span id="botHpText">100 / 100</span>
+        </div>
+        <div class="health-bg">
+          <div id="botHealth" class="health-fill bot-fill"></div>
+        </div>
+      </div>
+    </section>
+
+    <div class="canvas-wrap">
+      <canvas id="gameCanvas" width="960" height="540"></canvas>
+
+      <div id="overlay" class="overlay hidden">
+        <h2 id="overlayTitle">Game Over</h2>
+        <p id="overlayText">You were defeated.</p>
+        <button id="restartBtn">Restart Game</button>
+      </div>
+    </div>
+
+    <section class="controls-info">
+      <p><strong>Keyboard:</strong> A/D move • W jump • J punch • K kick • L block • Space special</p>
+    </section>
+
+    <section class="mobile-controls">
+      <div class="mobile-left">
+        <button data-key="a">◀</button>
+        <button data-key="d">▶</button>
+        <button data-key="w">▲</button>
+      </div>
+
+      <div class="mobile-right">
+        <button data-key="j">Punch</button>
+        <button data-key="k">Kick</button>
+        <button data-key="l">Block</button>
+        <button data-key=" ">Special</button>
+      </div>
+    </section>
+  </main>
+
+  <script src="game.js"></script>
+</body>
+</html>
