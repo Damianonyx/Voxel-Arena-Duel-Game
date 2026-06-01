@@ -13,21 +13,6 @@ const overlayTitle = document.getElementById("overlayTitle");
 const overlayText = document.getElementById("overlayText");
 const restartBtn = document.getElementById("restartBtn");
 
-const keys = {};
-
-const GRAVITY = 0.75;
-const FLOOR_Y = 445;
-
-let gameState = "playing";
-let currentRound = 1;
-let screenShake = 0;
-let attackEffects = [];
-
-let selectedPlayerIndex = 0;
-let botOrder = [1, 2, 3, 4, 5];
-
-const fighterImages = [];
-
 const imagePaths = [
   "assets/fighter1.png",
   "assets/fighter2.png",
@@ -37,46 +22,67 @@ const imagePaths = [
   "assets/fighter6.png"
 ];
 
+const keys = {};
+const fighterImages = [];
+
+const GRAVITY = 0.75;
+const FLOOR_Y = 445;
+
+let player;
+let bot;
+
+let currentRound = 1;
+let gameState = "playing";
+let selectedPlayerIndex = 0;
+let botOrder = [1, 2, 3, 4, 5];
+let attackEffects = [];
+let screenShake = 0;
+let loopStarted = false;
+
 function loadImages() {
   return Promise.all(
-    imagePaths.map((src) => {
+    imagePaths.map((src, index) => {
       return new Promise((resolve) => {
         const img = new Image();
         img.src = src;
-        img.onload = () => resolve(img);
+
+        img.onload = () => {
+          fighterImages[index] = img;
+          resolve(img);
+        };
+
         img.onerror = () => {
-          console.warn("Could not load image:", src);
+          console.warn("Image not found:", src);
+          fighterImages[index] = null;
           resolve(null);
         };
-        fighterImages.push(img);
       });
     })
   );
 }
 
 class Fighter {
-  constructor(options) {
-    this.name = options.name;
-    this.x = options.x;
-    this.y = options.y;
-    this.width = options.width || 105;
-    this.height = options.height || 190;
-    this.image = options.image;
+  constructor(config) {
+    this.name = config.name;
+    this.x = config.x;
+    this.y = config.y;
+    this.width = 105;
+    this.height = 190;
+    this.image = config.image || null;
 
     this.vx = 0;
     this.vy = 0;
-    this.speed = options.speed || 4;
-    this.jumpPower = options.jumpPower || 15;
+    this.speed = config.speed || 4;
+    this.jumpPower = 15;
 
-    this.maxHp = options.maxHp || 100;
+    this.maxHp = config.maxHp || 100;
     this.hp = this.maxHp;
-    this.damageMultiplier = options.damageMultiplier || 1;
+    this.damageMultiplier = config.damageMultiplier || 1;
 
-    this.facing = options.facing || 1;
+    this.facing = config.facing || 1;
     this.isGrounded = false;
     this.isBlocking = false;
     this.isAttacking = false;
-    this.attackType = null;
 
     this.hitFlash = 0;
     this.stun = 0;
@@ -84,17 +90,15 @@ class Fighter {
     this.punchCooldown = 0;
     this.kickCooldown = 0;
     this.specialCooldown = 0;
-    this.blockTimer = 0;
 
     this.aiTimer = 0;
-    this.aiState = "approach";
     this.retreatTimer = 0;
+    this.blockTimer = 0;
   }
 
   update() {
     this.x += this.vx;
     this.y += this.vy;
-
     this.vy += GRAVITY;
 
     if (this.y + this.height >= FLOOR_Y) {
@@ -116,8 +120,6 @@ class Fighter {
     if (this.blockTimer > 0) {
       this.blockTimer--;
       this.isBlocking = true;
-    } else if (this.name !== "Player") {
-      this.isBlocking = false;
     }
   }
 
@@ -129,15 +131,14 @@ class Fighter {
     }
 
     if (this.isBlocking) {
-      ctx.fillStyle = "rgba(80, 180, 255, 0.18)";
+      ctx.fillStyle = "rgba(80, 180, 255, 0.2)";
       ctx.fillRect(this.x - 8, this.y - 8, this.width + 16, this.height + 16);
     }
 
     const lean = this.isAttacking ? this.facing * 8 : 0;
-    const squash = this.isGrounded ? 1 : 0.96;
 
     ctx.translate(this.x + this.width / 2 + lean, this.y + this.height / 2);
-    ctx.scale(this.facing, squash);
+    ctx.scale(this.facing, 1);
 
     if (this.image) {
       ctx.drawImage(
@@ -148,7 +149,7 @@ class Fighter {
         this.height
       );
     } else {
-      ctx.fillStyle = this.name === "Player" ? "#65f2ff" : "#ff637d";
+      ctx.fillStyle = this.name === "Player" ? "#27f2a1" : "#ff4166";
       ctx.fillRect(-this.width / 2, -this.height / 2, this.width, this.height);
     }
 
@@ -156,7 +157,7 @@ class Fighter {
 
     if (this.isBlocking) {
       ctx.save();
-      ctx.strokeStyle = "rgba(95, 190, 255, 0.7)";
+      ctx.strokeStyle = "rgba(95, 190, 255, 0.75)";
       ctx.lineWidth = 4;
       ctx.beginPath();
       ctx.arc(
@@ -178,17 +179,33 @@ class Fighter {
     }
   }
 
+  getBodyBox() {
+    return {
+      x: this.x + 18,
+      y: this.y + 18,
+      width: this.width - 36,
+      height: this.height - 20
+    };
+  }
+
+  getAttackHitbox(range, height) {
+    return {
+      x: this.facing === 1 ? this.x + this.width - 8 : this.x - range + 8,
+      y: this.y + this.height * 0.38,
+      width: range,
+      height
+    };
+  }
+
   punch(target) {
     if (this.punchCooldown > 0 || this.stun > 0) return;
 
-    this.attackType = "punch";
     this.isAttacking = true;
     this.punchCooldown = 28;
 
     setTimeout(() => {
       this.isAttacking = false;
-      this.attackType = null;
-    }, 160);
+    }, 150);
 
     const hitbox = this.getAttackHitbox(75, 70);
     createAttackEffect(hitbox, "punch");
@@ -201,16 +218,14 @@ class Fighter {
   kick(target) {
     if (this.kickCooldown > 0 || this.stun > 0) return;
 
-    this.attackType = "kick";
     this.isAttacking = true;
     this.kickCooldown = 42;
 
     setTimeout(() => {
       this.isAttacking = false;
-      this.attackType = null;
-    }, 210);
+    }, 200);
 
-    const hitbox = this.getAttackHitbox(110, 65);
+    const hitbox = this.getAttackHitbox(115, 70);
     createAttackEffect(hitbox, "kick");
 
     if (rectsOverlap(hitbox, target.getBodyBox())) {
@@ -221,18 +236,16 @@ class Fighter {
   special(target) {
     if (this.specialCooldown > 0 || this.stun > 0) return;
 
-    this.attackType = "special";
     this.isAttacking = true;
     this.specialCooldown = 270;
+    screenShake = 14;
 
     setTimeout(() => {
       this.isAttacking = false;
-      this.attackType = null;
-    }, 280);
+    }, 260);
 
-    const hitbox = this.getAttackHitbox(165, 95);
+    const hitbox = this.getAttackHitbox(170, 95);
     createAttackEffect(hitbox, "special");
-    screenShake = 14;
 
     if (rectsOverlap(hitbox, target.getBodyBox())) {
       target.takeDamage(24 * this.damageMultiplier, this);
@@ -248,46 +261,22 @@ class Fighter {
 
     this.hp = Math.max(0, this.hp - finalDamage);
     this.hitFlash = 10;
-    this.stun = this.isBlocking ? 4 : 10;
+    this.stun = this.isBlocking ? 3 : 9;
 
-    const knockback = this.x < attacker.x ? -8 : 8;
-    this.vx = knockback;
+    this.vx = this.x < attacker.x ? -7 : 7;
     this.vy = Math.min(this.vy, -4);
 
     screenShake = 8;
 
     setTimeout(() => {
-      this.vx *= 0.2;
+      this.vx *= 0.1;
     }, 120);
-  }
-
-  getBodyBox() {
-    return {
-      x: this.x + 18,
-      y: this.y + 18,
-      width: this.width - 36,
-      height: this.height - 20
-    };
-  }
-
-  getAttackHitbox(range, height) {
-    const boxWidth = range;
-    const boxHeight = height;
-
-    return {
-      x:
-        this.facing === 1
-          ? this.x + this.width - 10
-          : this.x - boxWidth + 10,
-      y: this.y + this.height * 0.38,
-      width: boxWidth,
-      height: boxHeight
-    };
   }
 }
 
-let player;
-let bot;
+function buildBotOrder() {
+  botOrder = imagePaths.map((_, index) => index).filter(index => index !== selectedPlayerIndex);
+}
 
 function createPlayer() {
   player = new Fighter({
@@ -303,17 +292,60 @@ function createPlayer() {
 }
 
 function createBot(round) {
-  const botImageIndex = botOrder[round - 1];
+  const botIndex = botOrder[round - 1] ?? 1;
 
   bot = new Fighter({
     name: "Bot",
     x: 700,
     y: FLOOR_Y - 190,
-    image: fighterImages[botImageIndex],
+    image: fighterImages[botIndex],
     maxHp: 85 + round * 20,
     damageMultiplier: 0.85 + round * 0.16,
-    speed: 2.8 + round * 0.18,
+    speed: 2.8 + round * 0.2,
     facing: -1
+  });
+}
+
+function createFighterSelect() {
+  let fighterSelect = document.getElementById("fighterSelect");
+
+  if (!fighterSelect) {
+    const characterSection = document.querySelector(".character-select");
+
+    fighterSelect = document.createElement("div");
+    fighterSelect.id = "fighterSelect";
+    fighterSelect.className = "fighter-select-grid";
+
+    if (characterSection) {
+      characterSection.appendChild(fighterSelect);
+    } else {
+      document.body.prepend(fighterSelect);
+    }
+  }
+
+  fighterSelect.innerHTML = "";
+
+  imagePaths.forEach((src, index) => {
+    const button = document.createElement("button");
+    button.className = "fighter-card";
+
+    if (index === selectedPlayerIndex) {
+      button.classList.add("active");
+    }
+
+    button.innerHTML = `
+      <img src="${src}" alt="Fighter ${index + 1}">
+      <span>Fighter ${index + 1}</span>
+    `;
+
+    button.addEventListener("click", () => {
+      selectedPlayerIndex = index;
+      buildBotOrder();
+      createFighterSelect();
+      restartGame();
+    });
+
+    fighterSelect.appendChild(button);
   });
 }
 
@@ -352,18 +384,15 @@ function handlePlayerInput() {
 }
 
 function updateBotAI() {
-  if (gameState !== "playing") return;
-  if (!bot || bot.hp <= 0) return;
+  if (gameState !== "playing" || !bot || bot.hp <= 0) return;
 
   const distance = Math.abs(player.x - bot.x);
   bot.facing = player.x > bot.x ? 1 : -1;
 
   bot.aiTimer--;
 
-  if (bot.hp < bot.maxHp * 0.28 && bot.retreatTimer <= 0) {
-    if (Math.random() < 0.025) {
-      bot.retreatTimer = 70;
-    }
+  if (bot.hp < bot.maxHp * 0.28 && bot.retreatTimer <= 0 && Math.random() < 0.03) {
+    bot.retreatTimer = 70;
   }
 
   if (bot.retreatTimer > 0) {
@@ -373,9 +402,10 @@ function updateBotAI() {
     return;
   }
 
+  bot.isBlocking = false;
+
   if (distance > 145) {
     bot.vx = player.x > bot.x ? bot.speed : -bot.speed;
-    bot.isBlocking = false;
   } else {
     bot.vx = 0;
 
@@ -425,37 +455,6 @@ function createAttackEffect(box, type) {
   });
 }
 
-function drawAttackEffects() {
-  attackEffects = attackEffects.filter(effect => effect.life > 0);
-
-  for (const effect of attackEffects) {
-    const alpha = effect.life / effect.maxLife;
-
-    ctx.save();
-
-    if (effect.type === "special") {
-      ctx.fillStyle = `rgba(158, 116, 255, ${alpha * 0.45})`;
-      ctx.strokeStyle = `rgba(255, 255, 255, ${alpha})`;
-      ctx.lineWidth = 3;
-    } else if (effect.type === "kick") {
-      ctx.fillStyle = `rgba(255, 210, 80, ${alpha * 0.35})`;
-      ctx.strokeStyle = `rgba(255, 230, 140, ${alpha})`;
-      ctx.lineWidth = 2;
-    } else {
-      ctx.fillStyle = `rgba(70, 220, 255, ${alpha * 0.35})`;
-      ctx.strokeStyle = `rgba(150, 240, 255, ${alpha})`;
-      ctx.lineWidth = 2;
-    }
-
-    ctx.fillRect(effect.x, effect.y, effect.width, effect.height);
-    ctx.strokeRect(effect.x, effect.y, effect.width, effect.height);
-
-    ctx.restore();
-
-    effect.life--;
-  }
-}
-
 function drawBackground() {
   const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
   gradient.addColorStop(0, "#090915");
@@ -464,8 +463,6 @@ function drawBackground() {
 
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-  ctx.save();
 
   ctx.strokeStyle = "rgba(100, 140, 255, 0.18)";
   ctx.lineWidth = 1;
@@ -484,8 +481,6 @@ function drawBackground() {
     ctx.stroke();
   }
 
-  ctx.restore();
-
   ctx.fillStyle = "rgba(115, 87, 255, 0.16)";
   ctx.fillRect(0, FLOOR_Y, canvas.width, canvas.height - FLOOR_Y);
 
@@ -494,32 +489,44 @@ function drawBackground() {
 
   ctx.fillStyle = "rgba(255,255,255,0.18)";
   ctx.fillRect(0, FLOOR_Y + 8, canvas.width, 2);
-
-  ctx.save();
-  ctx.globalAlpha = 0.45;
-  ctx.fillStyle = "#7e5cff";
-  ctx.fillRect(90, 90, 120, 10);
-  ctx.fillRect(750, 120, 130, 10);
-  ctx.fillRect(410, 70, 160, 10);
-  ctx.restore();
 }
 
-function drawNameTags() {
-  drawTag(player, "YOU");
-  drawTag(bot, "BOT " + currentRound);
+function drawAttackEffects() {
+  attackEffects = attackEffects.filter(effect => effect.life > 0);
+
+  for (const effect of attackEffects) {
+    const alpha = effect.life / effect.maxLife;
+
+    if (effect.type === "special") {
+      ctx.fillStyle = `rgba(158, 116, 255, ${alpha * 0.45})`;
+      ctx.strokeStyle = `rgba(255, 255, 255, ${alpha})`;
+    } else if (effect.type === "kick") {
+      ctx.fillStyle = `rgba(255, 210, 80, ${alpha * 0.35})`;
+      ctx.strokeStyle = `rgba(255, 230, 140, ${alpha})`;
+    } else {
+      ctx.fillStyle = `rgba(70, 220, 255, ${alpha * 0.35})`;
+      ctx.strokeStyle = `rgba(150, 240, 255, ${alpha})`;
+    }
+
+    ctx.lineWidth = 2;
+    ctx.fillRect(effect.x, effect.y, effect.width, effect.height);
+    ctx.strokeRect(effect.x, effect.y, effect.width, effect.height);
+
+    effect.life--;
+  }
 }
 
-function drawTag(fighter, text) {
+function drawNameTag(fighter, text) {
   ctx.save();
-  ctx.font = "bold 14px Arial";
-  ctx.textAlign = "center";
 
   const x = fighter.x + fighter.width / 2;
-  const y = fighter.y - 14;
+  const y = fighter.y - 12;
 
-  ctx.fillStyle = "rgba(0,0,0,0.55)";
-  ctx.fillRect(x - 36, y - 18, 72, 22);
+  ctx.fillStyle = "rgba(0,0,0,0.6)";
+  ctx.fillRect(x - 38, y - 18, 76, 23);
 
+  ctx.font = "bold 14px Arial";
+  ctx.textAlign = "center";
   ctx.fillStyle = "#ffffff";
   ctx.fillText(text, x, y - 2);
 
@@ -527,11 +534,13 @@ function drawTag(fighter, text) {
 }
 
 function updateHUD() {
+  if (!player || !bot) return;
+
   const playerPercent = Math.max(0, player.hp / player.maxHp) * 100;
   const botPercent = Math.max(0, bot.hp / bot.maxHp) * 100;
 
-  playerHealthEl.style.width = playerPercent + "%";
-  botHealthEl.style.width = botPercent + "%";
+  playerHealthEl.style.width = `${playerPercent}%`;
+  botHealthEl.style.width = `${botPercent}%`;
 
   playerHpText.textContent = `${Math.ceil(player.hp)} / ${player.maxHp}`;
   botHpText.textContent = `${Math.ceil(bot.hp)} / ${bot.maxHp}`;
@@ -542,8 +551,7 @@ function updateHUD() {
     specialText.textContent = "Special Ready";
     specialText.style.color = "#ffd36a";
   } else {
-    const seconds = Math.ceil(player.specialCooldown / 60);
-    specialText.textContent = `Special: ${seconds}s`;
+    specialText.textContent = `Special: ${Math.ceil(player.specialCooldown / 60)}s`;
     specialText.style.color = "#b9bbd8";
   }
 }
@@ -555,20 +563,23 @@ function checkGameStatus() {
 
   if (bot.hp <= 0 && gameState === "playing") {
     if (currentRound >= botOrder.length) {
-  endGame(true);
-} else {
+      endGame(true);
     } else {
-      currentRound++;
+      gameState = "transition";
+
       setTimeout(() => {
+        currentRound++;
         createBot(currentRound);
         player.hp = Math.min(player.maxHp, player.hp + 25);
-      }, 500);
+        gameState = "playing";
+      }, 650);
     }
   }
 }
 
 function endGame(playerWon) {
   gameState = "ended";
+
   overlay.classList.remove("hidden");
 
   if (playerWon) {
@@ -580,63 +591,30 @@ function endGame(playerWon) {
   }
 }
 
-function buildBotOrder() {
-  botOrder = fighterImages
-    .map((_, index) => index)
-    .filter(index => index !== selectedPlayerIndex);
-}
-
-function createFighterSelect() {
-  const fighterSelect = document.getElementById("fighterSelect");
-
-  if (!fighterSelect) return;
-
-  fighterSelect.innerHTML = "";
-
-  fighterImages.forEach((img, index) => {
-    const button = document.createElement("button");
-
-    button.className = "fighter-card";
-
-    if (index === selectedPlayerIndex) {
-      button.classList.add("active");
-    }
-
-    button.innerHTML = `
-      <img src="${imagePaths[index]}" alt="Fighter ${index + 1}">
-      <span>Fighter ${index + 1}</span>
-    `;
-
-    button.addEventListener("click", () => {
-      selectedPlayerIndex = index;
-      buildBotOrder();
-      createFighterSelect();
-      restartGame();
-    });
-
-    fighterSelect.appendChild(button);
-  });
-}
-
 function restartGame() {
-  gameState = "playing";
   currentRound = 1;
   attackEffects = [];
   screenShake = 0;
+  gameState = "playing";
 
-  overlay.classList.add("hidden");
+  if (overlay) {
+    overlay.classList.add("hidden");
+  }
 
   createPlayer();
   createBot(currentRound);
+  updateHUD();
 }
 
 function gameLoop() {
   ctx.save();
 
   if (screenShake > 0) {
-    const shakeX = (Math.random() - 0.5) * screenShake;
-    const shakeY = (Math.random() - 0.5) * screenShake;
-    ctx.translate(shakeX, shakeY);
+    ctx.translate(
+      (Math.random() - 0.5) * screenShake,
+      (Math.random() - 0.5) * screenShake
+    );
+
     screenShake *= 0.86;
 
     if (screenShake < 0.6) {
@@ -646,19 +624,23 @@ function gameLoop() {
 
   drawBackground();
 
-  if (gameState === "playing") {
-    handlePlayerInput();
-    updateBotAI();
+  if (player && bot) {
+    if (gameState === "playing") {
+      handlePlayerInput();
+      updateBotAI();
 
-    player.update();
-    bot.update();
+      player.update();
+      bot.update();
 
-    if (player.x < bot.x) {
-      player.facing = player.vx !== 0 ? player.facing : 1;
-      bot.facing = -1;
-    } else {
-      player.facing = player.vx !== 0 ? player.facing : -1;
-      bot.facing = 1;
+      if (player.x < bot.x) {
+        if (player.vx === 0) player.facing = 1;
+        bot.facing = -1;
+      } else {
+        if (player.vx === 0) player.facing = -1;
+        bot.facing = 1;
+      }
+
+      checkGameStatus();
     }
 
     drawAttackEffects();
@@ -671,14 +653,10 @@ function gameLoop() {
       player.draw();
     }
 
-    drawNameTags();
+    drawNameTag(player, "YOU");
+    drawNameTag(bot, `BOT ${currentRound}`);
+
     updateHUD();
-    checkGameStatus();
-  } else {
-    drawAttackEffects();
-    player.draw();
-    bot.draw();
-    drawNameTags();
   }
 
   ctx.restore();
@@ -699,8 +677,6 @@ window.addEventListener("keydown", (event) => {
 window.addEventListener("keyup", (event) => {
   keys[event.key.toLowerCase()] = false;
 });
-
-restartBtn.addEventListener("click", restartGame);
 
 document.querySelectorAll(".mobile-controls button").forEach((button) => {
   const key = button.dataset.key;
@@ -728,9 +704,17 @@ document.querySelectorAll(".mobile-controls button").forEach((button) => {
   });
 });
 
+if (restartBtn) {
+  restartBtn.addEventListener("click", restartGame);
+}
+
 loadImages().then(() => {
   buildBotOrder();
   createFighterSelect();
   restartGame();
-  gameLoop();
+
+  if (!loopStarted) {
+    loopStarted = true;
+    gameLoop();
+  }
 });
