@@ -23,6 +23,9 @@ let currentRound = 1;
 let screenShake = 0;
 let attackEffects = [];
 
+let selectedPlayerIndex = 0;
+let botOrder = [1, 2, 3, 4, 5];
+
 const fighterImages = [];
 
 const imagePaths = [
