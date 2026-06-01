@@ -294,7 +294,7 @@ function createPlayer() {
     name: "Player",
     x: 150,
     y: FLOOR_Y - 190,
-    image: fighterImages[0],
+    image: fighterImages[selectedPlayerIndex],
     maxHp: 100,
     damageMultiplier: 1,
     speed: 5,
@@ -303,13 +303,13 @@ function createPlayer() {
 }
 
 function createBot(round) {
-  const index = Math.min(round, 5);
+  const botImageIndex = botOrder[round - 1];
 
   bot = new Fighter({
     name: "Bot",
     x: 700,
     y: FLOOR_Y - 190,
-    image: fighterImages[index],
+    image: fighterImages[botImageIndex],
     maxHp: 85 + round * 20,
     damageMultiplier: 0.85 + round * 0.16,
     speed: 2.8 + round * 0.18,
@@ -536,7 +536,7 @@ function updateHUD() {
   playerHpText.textContent = `${Math.ceil(player.hp)} / ${player.maxHp}`;
   botHpText.textContent = `${Math.ceil(bot.hp)} / ${bot.maxHp}`;
 
-  roundText.textContent = `Round ${currentRound}`;
+  roundText.textContent = `Round ${currentRound} / ${botOrder.length}`;
 
   if (player.specialCooldown <= 0) {
     specialText.textContent = "Special Ready";
@@ -554,8 +554,9 @@ function checkGameStatus() {
   }
 
   if (bot.hp <= 0 && gameState === "playing") {
-    if (currentRound >= 5) {
-      endGame(true);
+    if (currentRound >= botOrder.length) {
+  endGame(true);
+} else {
     } else {
       currentRound++;
       setTimeout(() => {
@@ -577,6 +578,44 @@ function endGame(playerWon) {
     overlayTitle.textContent = "Game Over";
     overlayText.textContent = "You were defeated. Restart and run it back.";
   }
+}
+
+function buildBotOrder() {
+  botOrder = fighterImages
+    .map((_, index) => index)
+    .filter(index => index !== selectedPlayerIndex);
+}
+
+function createFighterSelect() {
+  const fighterSelect = document.getElementById("fighterSelect");
+
+  if (!fighterSelect) return;
+
+  fighterSelect.innerHTML = "";
+
+  fighterImages.forEach((img, index) => {
+    const button = document.createElement("button");
+
+    button.className = "fighter-card";
+
+    if (index === selectedPlayerIndex) {
+      button.classList.add("active");
+    }
+
+    button.innerHTML = `
+      <img src="${imagePaths[index]}" alt="Fighter ${index + 1}">
+      <span>Fighter ${index + 1}</span>
+    `;
+
+    button.addEventListener("click", () => {
+      selectedPlayerIndex = index;
+      buildBotOrder();
+      createFighterSelect();
+      restartGame();
+    });
+
+    fighterSelect.appendChild(button);
+  });
 }
 
 function restartGame() {
@@ -690,6 +729,8 @@ document.querySelectorAll(".mobile-controls button").forEach((button) => {
 });
 
 loadImages().then(() => {
+  buildBotOrder();
+  createFighterSelect();
   restartGame();
   gameLoop();
 });
